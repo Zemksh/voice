@@ -1,0 +1,6 @@
+-r requirements.txt
+# faster-whisper imports av at runtime; av >= 19 dropped the metadata_errors
+# argument faster-whisper 1.x passes to av.open.
+av>=10,<15
+faster-whisper>=1.1,<2
+huggingface-hub>=0.28,<2
