@@ -7,3 +7,5 @@ dist/
 *.pyc
 playwright-report/
 test-results/
+
+*.tsbuildinfo
