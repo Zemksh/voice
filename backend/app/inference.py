@@ -116,8 +116,8 @@ def analyze(session, settings):
         'Duration is context only, not an automatic score penalty. Rubric anchors are numbered 1 through 5: '
         + json.dumps(RUBRIC))
     payload = {'model': settings.gemma_model, 'stream': False, 'keep_alive': 0,
-               'format': Feedback.model_json_schema(), 'options': {'temperature': 0.1, 'num_ctx': 8192, 'num_predict': 2500},
-               'messages': [{'role': 'system', 'content': system},
+               'format': Feedback.model_json_schema(), 'options': {'temperature': 0.1, 'num_ctx': 8192, 'num_predict': 4096},
+               'messages': [{'role': 'system', 'content': system + ' Output only valid JSON matching the schema. No markdown code fences, no extra text.'},
                             {'role': 'user', 'content': json.dumps({'topic': session['topic'],
                               'approved_transcript': transcript, 'duration_seconds': session['duration']})}]}
     try:
