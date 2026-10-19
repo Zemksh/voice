@@ -108,3 +108,50 @@ def test_invalid_output_then_valid_recovers(tmp_path, monkeypatch):
     assert feedback["scores"]["relevance"]["score"] == 3
     assert len(feedback["improvements"]) == 2
     assert len(client.calls) == 2
+
+def test_generation_constrains_evidence_to_transcript(tmp_path, monkeypatch):
+    client = CapturingClient(replies=['valid'])
+    _patch_httpx(monkeypatch, client)
+    analyze({'topic': 'a topic', 'corrected_transcript': TRANSCRIPT, 'duration': 63}, settings(tmp_path))
+    payload = client.calls[0]
+    for name in ('Score', 'Improvement'):
+        choices = payload['format']['$defs'][name]['properties']['evidence']['enum']
+        assert choices
+        assert all(quote.strip() and quote in TRANSCRIPT for quote in choices)
+    assert json.loads(payload['messages'][1]['content'])['evidence_choices'] == choices
+
+
+def test_retry_includes_previous_response_and_validation_error(tmp_path, monkeypatch):
+    client = CapturingClient(replies=['invalid', 'valid'])
+    _patch_httpx(monkeypatch, client)
+    analyze({'topic': 'a topic', 'corrected_transcript': TRANSCRIPT, 'duration': 63}, settings(tmp_path))
+    messages = client.calls[1]['messages']
+    assert messages[-2] == {'role': 'assistant', 'content': 'not valid json'}
+    assert 'json_invalid' in messages[-1]['content']
+
+
+def test_evidence_choices_preserve_exact_spans():
+    from backend.app.inference import evidence_choices
+    transcript = '  First sentence!\nNext\tline has “quotes” and   spaces. ' + 'word ' * 500 + 'x' * 2100
+    choices = evidence_choices(transcript)
+    assert choices
+    assert all(quote.strip() and quote in transcript and len(quote) <= 400 for quote in choices)
+
+
+def test_evidence_failure_retries_and_never_saves_invalid_scores(tmp_path, monkeypatch):
+    class BadEvidenceClient(CapturingClient):
+        def _handle(self, request):
+            if request.url.path == '/api/chat':
+                self.calls.append(json.loads(request.content.decode()))
+                feedback = json.loads(json.dumps(GOOD_FEEDBACK))
+                feedback['scores']['relevance']['evidence'] = 'Invented private quote'
+                return httpx.Response(200, json={'message': {'content': json.dumps(feedback)}})
+            return super()._handle(request)
+
+    client = BadEvidenceClient()
+    _patch_httpx(monkeypatch, client)
+    with pytest.raises(PracticeError, match='Evidence must be an exact') as caught:
+        analyze({'topic': 'a topic', 'corrected_transcript': TRANSCRIPT, 'duration': 63}, settings(tmp_path))
+    assert len(client.calls) == 2
+    assert 'evidence_choices' in client.calls[1]['messages'][-1]['content']
+    assert 'Invented private quote' not in str(caught.value)
